@@ -1,0 +1,95 @@
+# Final Production-Ready Inventory Orchestrator Configuration
+# Demonstrates PostgreSQL database adapter with OUTBOX strategy
+
+orchestrator:
+  # MANDATORY: Consumer configuration (app will fail to start without these)
+  consumer:
+    topic: inventory-input-topic
+    group-id: inventory-orchestrator-group
+    bootstrap-servers: localhost:9092  # Can be different from producer
+    
+  # MANDATORY: Producer configuration (app will fail to start without these)
+  producer:
+    topic: inventory-output-topic
+    bootstrap-servers: localhost:9092  # Can be different from consumer
+    
+  # MANDATORY: Database configuration
+  database:
+    strategy: LIGHTWEIGHT  # Different strategy - only log failures
+    payload-storage: NONE  # Don't store payloads for performance
+    store-payload-on-failure-only: true
+
+# Database Configuration - PostgreSQL (default for this orchestrator)
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/inventory_orchestrator
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    show-sql: false
+  
+  # Application Configuration
+  application:
+    name: inventory-orchestrator
+    
+  # Server Configuration (different port to avoid conflicts)
+  server:
+    port: 8081
+
+# Latest Kafka Configuration Overrides (Spring Boot 3.3.5 optimized)
+spring.kafka:
+  consumer:
+    heartbeat-interval: 3s
+    session-timeout: 45s
+    max-poll-records: 500
+    fetch-max-wait: 500ms
+    auto-offset-reset: earliest
+    enable-auto-commit: false
+    isolation-level: read_committed
+  
+  producer:
+    retries: 2147483647
+    batch-size: 16384
+    linger-ms: 1
+    buffer-memory: 33554432
+    compression-type: snappy
+    acks: all
+    enable-idempotence: true
+    max-in-flight-requests-per-connection: 5
+
+# Logging Configuration
+logging:
+  level:
+    com.orchestrator: INFO
+    org.postgresql: WARN
+    org.hibernate.SQL: WARN
+    org.springframework.kafka: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    
+# Management and Monitoring (Spring Boot 3.3.5)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+      percentiles:
+        "[http.server.requests]": 0.5, 0.95, 0.99
+  tracing:
+    sampling:
+      probability: 1.0

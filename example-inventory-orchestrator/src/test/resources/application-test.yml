@@ -1,0 +1,30 @@
+orchestrator:
+  consumer:
+    topic: test-inventory-input
+    group-id: test-inventory-group
+    bootstrap-servers: localhost:9092
+  producer:
+    topic: test-inventory-output
+    bootstrap-servers: localhost:9092
+  database:
+    strategy: FAIL_SAFE
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+  application:
+    name: test-inventory-orchestrator
+  server:
+    port: 0
+
+logging:
+  level:
+    org.springframework.kafka: WARN
+    com.orchestrator: DEBUG

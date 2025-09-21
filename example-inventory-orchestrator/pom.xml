@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.orchestrator.example</groupId>
+    <artifactId>example-inventory-orchestrator</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    
+    <name>Example Inventory Orchestrator</name>
+    <description>Standalone inventory orchestrator with ONLY 2 internal JAR dependencies</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring.boot.version>3.3.5</spring.boot.version>
+        
+        <!-- Default database type for inventory - PostgreSQL -->
+        <db.type>postgres</db.type>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- ONLY 2 INTERNAL JAR DEPENDENCIES AS REQUIRED -->
+        
+        <!-- Core Adapter JAR - Contains ALL Spring Boot web framework and core business logic -->
+        <dependency>
+            <groupId>com.orchestrator</groupId>
+            <artifactId>orchestrator-core-adapter</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        
+        <!-- DB Adapter JAR - Property-based selection: orchestrator-{db.type}-adapter -->
+        <dependency>
+            <groupId>com.orchestrator</groupId>
+            <artifactId>orchestrator-${db.type}-adapter</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        
+        <!-- Testing Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.boot.version}</version>
+                <configuration>
+                    <mainClass>com.orchestrator.example.inventory.InventoryOrchestratorApplication</mainClass>
+                </configuration>
+            </plugin>
+            
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.12.1</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

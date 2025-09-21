@@ -1,0 +1,25 @@
+orchestrator:
+  consumer:
+    topic: test-input-topic
+    group-id: test-payment-group
+    bootstrap-servers: localhost:9092
+  producer:
+    topic: test-output-topic
+    bootstrap-servers: localhost:9092
+  database:
+    strategy: FAIL_SAFE
+
+spring:
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/test-payment-orchestrator
+      database: test-payment-orchestrator
+  application:
+    name: test-payment-orchestrator
+  server:
+    port: 0
+
+logging:
+  level:
+    org.springframework.kafka: WARN
+    com.orchestrator: DEBUG

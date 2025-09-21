@@ -1,0 +1,21 @@
+orchestrator:
+  consumer:
+    topic: payment-input-topic
+    group-id: payment-orchestrator-group
+    bootstrap-servers: localhost:9092
+  producer:
+    topic: payment-output-topic
+    bootstrap-servers: localhost:9092
+  database:
+    strategy: OUTBOX
+    payload-storage: TEXT
+    store-payload-on-failure-only: false
+spring:
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/payment-orchestrator
+      database: payment-orchestrator
+  application:
+    name: payment-orchestrator
+  server:
+    port: 8080

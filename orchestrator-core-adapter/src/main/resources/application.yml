@@ -1,0 +1,98 @@
+orchestrator:
+  consumer:
+    topic: ${orchestrator.consumer.topic:}
+    group-id: ${orchestrator.consumer.group.id:}
+    bootstrap-servers: ${orchestrator.consumer.bootstrap.servers:localhost:9092}
+    concurrency: ${orchestrator.consumer.concurrency:3}
+    max-poll-records: ${orchestrator.consumer.max.poll.records:50}
+    poll-timeout: ${orchestrator.consumer.poll.timeout:PT3S}
+    enable-auto-commit: ${orchestrator.consumer.enable.auto.commit:false}
+    heartbeat-interval: ${orchestrator.consumer.heartbeat.interval:PT3S}
+    session-timeout: ${orchestrator.consumer.session.timeout:PT30S}
+    fetch-min-bytes: ${orchestrator.consumer.fetch.min.bytes:1}
+    fetch-max-wait: ${orchestrator.consumer.fetch.max.wait:PT0.5S}
+    max-partition-fetch-bytes: ${orchestrator.consumer.max.partition.fetch.bytes:1048576}
+    receive-buffer-bytes: ${orchestrator.consumer.receive.buffer.bytes:65536}
+    send-buffer-bytes: ${orchestrator.consumer.send.buffer.bytes:131072}
+    
+  producer:
+    topic: ${orchestrator.producer.topic:}
+    bootstrap-servers: ${orchestrator.producer.bootstrap.servers:localhost:9092}
+    acks: ${orchestrator.producer.acks:all}
+    retries: ${orchestrator.producer.retries:3}
+    request-timeout: ${orchestrator.producer.request.timeout:PT30S}
+    enable-idempotence: ${orchestrator.producer.enable.idempotence:false}
+    batch-size: ${orchestrator.producer.batch.size:16384}
+    linger-ms: ${orchestrator.producer.linger.ms:PT0.01S}
+    compression-type: ${orchestrator.producer.compression.type:snappy}
+    buffer-memory: ${orchestrator.producer.buffer.memory:33554432}
+    max-in-flight-requests-per-connection: ${orchestrator.producer.max.in.flight.requests.per.connection:5}
+    delivery-timeout: ${orchestrator.producer.delivery.timeout:PT2M}
+    
+  database:
+    strategy: ${orchestrator.database.strategy:RELIABLE}
+    payload-storage: ${orchestrator.database.payload.storage:NONE}
+    store-payload-on-failure-only: ${orchestrator.database.store.payload.on.failure.only:true}
+    stale-event-threshold: ${orchestrator.database.stale.event.threshold:PT30M}
+    max-retries: ${orchestrator.database.max.retries:3}
+    retention-period: ${orchestrator.database.retention.period:P7D}
+    bulk-size: ${orchestrator.database.bulk.size:100}
+    executor-threads: ${orchestrator.database.executor.threads:10}
+    
+  metrics:
+    enabled: ${orchestrator.metrics.enabled:true}
+
+spring:
+  kafka:
+    consumer:
+      auto-offset-reset: ${orchestrator.kafka.consumer.auto.offset.reset:earliest}
+      isolation-level: ${orchestrator.kafka.consumer.isolation.level:read_committed}
+      enable-auto-commit: false
+      
+    producer:
+      acks: ${orchestrator.kafka.producer.acks:all}
+      enable-idempotence: ${orchestrator.kafka.producer.enable.idempotence:false}
+      
+    listener:
+      ack-mode: ${orchestrator.kafka.listener.ack.mode:manual_immediate}
+      
+  datasource:
+    hikari:
+      connection-pool-name: ${orchestrator.datasource.hikari.pool.name:OrchestratorPool}
+      maximum-pool-size: ${orchestrator.datasource.hikari.maximum.pool.size:20}
+      minimum-idle: ${orchestrator.datasource.hikari.minimum.idle:5}
+      idle-timeout: ${orchestrator.datasource.hikari.idle.timeout:300000}
+      max-lifetime: ${orchestrator.datasource.hikari.max.lifetime:1800000}
+      connection-timeout: ${orchestrator.datasource.hikari.connection.timeout:30000}
+      validation-timeout: ${orchestrator.datasource.hikari.validation.timeout:5000}
+      leak-detection-threshold: ${orchestrator.datasource.hikari.leak.detection.threshold:60000}
+      
+  data:
+    mongodb:
+      connection-pool:
+        max-size: ${orchestrator.mongodb.connection.pool.max.size:20}
+        min-size: ${orchestrator.mongodb.connection.pool.min.size:5}
+        max-wait-time: ${orchestrator.mongodb.connection.pool.max.wait.time:30000ms}
+        max-connection-idle-time: ${orchestrator.mongodb.connection.pool.max.idle.time:300000ms}
+        max-connection-life-time: ${orchestrator.mongodb.connection.pool.max.life.time:1800000ms}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ${management.endpoints.include:health,info,prometheus,metrics}
+  endpoint:
+    health:
+      show-details: ${management.health.show.details:when-authorized}
+  metrics:
+    export:
+      prometheus:
+        enabled: ${management.metrics.prometheus.enabled:true}
+
+logging:
+  level:
+    org.springframework.kafka: ${logging.kafka.level:INFO}
+    com.orchestrator: ${logging.orchestrator.level:INFO}
+  pattern:
+    console: "${logging.pattern.console:%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n}"
+    file: "${logging.pattern.file:%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n}"
