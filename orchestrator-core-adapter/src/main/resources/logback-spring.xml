@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- Console Appender with ECS JSON format -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="co.elastic.logging.logback.EcsEncoder">
+            <serviceName>kafka-orchestrator</serviceName>
+            <serviceVersion>1.0.0</serviceVersion>
+            <serviceEnvironment>${ENVIRONMENT:local}</serviceEnvironment>
+            <serviceNodeName>${HOSTNAME:localhost}</serviceNodeName>
+            <includeMarkers>true</includeMarkers>
+            <includeOrigin>true</includeOrigin>
+            <includeMdc>true</includeMdc>
+        </encoder>
+    </appender>
+
+    <!-- File Appender with ECS JSON format -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/orchestrator.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/orchestrator.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>10GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="co.elastic.logging.logback.EcsEncoder">
+            <serviceName>kafka-orchestrator</serviceName>
+            <serviceVersion>1.0.0</serviceVersion>
+            <serviceEnvironment>${ENVIRONMENT:local}</serviceEnvironment>
+            <serviceNodeName>${HOSTNAME:localhost}</serviceNodeName>
+            <includeMarkers>true</includeMarkers>
+            <includeOrigin>true</includeOrigin>
+            <includeMdc>true</includeMdc>
+        </encoder>
+    </appender>
+
+    <!-- Async Appender for performance -->
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="FILE"/>
+        <queueSize>1024</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <includeCallerData>false</includeCallerData>
+        <neverBlock>true</neverBlock>
+    </appender>
+
+    <!-- Security/Audit Appender for sensitive operations -->
+    <appender name="SECURITY" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/security.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/security.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>90</maxHistory>
+        </rollingPolicy>
+        <encoder class="co.elastic.logging.logback.EcsEncoder">
+            <serviceName>kafka-orchestrator-security</serviceName>
+            <serviceVersion>1.0.0</serviceVersion>
+            <serviceEnvironment>${ENVIRONMENT:local}</serviceEnvironment>
+            <includeMarkers>true</includeMarkers>
+            <includeOrigin>true</includeOrigin>
+            <includeMdc>true</includeMdc>
+        </encoder>
+    </appender>
+
+    <!-- Performance Metrics Appender -->
+    <appender name="METRICS" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/metrics.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/metrics.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+        <encoder class="co.elastic.logging.logback.EcsEncoder">
+            <serviceName>kafka-orchestrator-metrics</serviceName>
+            <serviceVersion>1.0.0</serviceVersion>
+            <serviceEnvironment>${ENVIRONMENT:local}</serviceEnvironment>
+            <includeMarkers>true</includeMarkers>
+            <includeOrigin>false</includeOrigin>
+            <includeMdc>true</includeMdc>
+        </encoder>
+    </appender>
+
+    <!-- Logger configurations -->
+    <logger name="com.orchestrator.core.security" level="INFO" additivity="false">
+        <appender-ref ref="SECURITY"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <logger name="com.orchestrator.core.metrics" level="DEBUG" additivity="false">
+        <appender-ref ref="METRICS"/>
+    </logger>
+
+    <logger name="com.orchestrator" level="INFO"/>
+    <logger name="org.springframework.kafka" level="INFO"/>
+    <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="org.mongodb.driver" level="WARN"/>
+    <logger name="org.postgresql" level="WARN"/>
+
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE"/>
+    </root>
+
+    <!-- Development profile for local testing -->
+    <springProfile name="dev,local">
+        <logger name="com.orchestrator" level="DEBUG"/>
+        <logger name="org.springframework.kafka" level="DEBUG"/>
+    </springProfile>
+
+    <!-- Production profile -->
+    <springProfile name="prod">
+        <logger name="com.orchestrator" level="INFO"/>
+        <logger name="org.springframework.kafka" level="WARN"/>
+        <root level="WARN">
+            <appender-ref ref="ASYNC_FILE"/>
+        </root>
+    </springProfile>
+</configuration>

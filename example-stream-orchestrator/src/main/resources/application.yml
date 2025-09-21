@@ -1,0 +1,75 @@
+# Ultra High-Performance Stream Orchestrator Configuration
+# Demonstrates NONE strategy for maximum throughput with no database overhead
+
+orchestrator:
+  # MANDATORY: Consumer configuration
+  consumer:
+    topic: stream-input-topic
+    group-id: stream-orchestrator-group
+    bootstrap-servers: localhost:9092
+    concurrency: 8  # High concurrency for performance
+    max-poll-records: 1000  # Large batch sizes
+
+  # MANDATORY: Producer configuration
+  producer:
+    topic: stream-output-topic
+    bootstrap-servers: localhost:9092
+
+  # MANDATORY: Database configuration - NONE for maximum performance
+  database:
+    strategy: NONE  # No database logging for ultra-fast processing
+    payload-storage: NONE  # No payload storage
+    store-payload-on-failure-only: false
+
+# Spring Boot Configuration
+spring:
+  application:
+    name: stream-orchestrator
+
+  # Server Configuration
+  server:
+    port: 8082
+
+# Kafka Performance Optimizations
+spring.kafka:
+  consumer:
+    heartbeat-interval: 3s
+    session-timeout: 45s
+    max-poll-records: 1000
+    fetch-max-wait: 100ms  # Fast fetch
+    auto-offset-reset: latest
+    enable-auto-commit: false
+    isolation-level: read_committed
+
+  producer:
+    retries: 1  # Minimal retries for speed
+    batch-size: 65536  # Large batch size
+    linger-ms: 5  # Small linger for throughput
+    buffer-memory: 67108864  # 64MB buffer
+    compression-type: lz4  # Fast compression
+    acks: 1  # Faster than 'all'
+    enable-idempotence: false  # Disable for speed
+    max-in-flight-requests-per-connection: 10  # Higher for throughput
+
+# Logging Configuration - Minimal for performance
+logging:
+  level:
+    com.orchestrator: WARN  # Reduce logging overhead
+    org.springframework.kafka: WARN
+    root: WARN
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n"
+
+# Monitoring Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true

@@ -51,40 +51,35 @@ public class PostgresEventStore implements EventStore {
                     }
                     
                     ps.setString(1, event.getId());
-                    ps.setString(2, event.getPayload());
-                    ps.setString(3, event.getTopicPartition());
-                    ps.setLong(4, event.getOffsetValue());
-                    ps.setString(5, event.getStatus().name());
-                    ps.setTimestamp(6, Timestamp.from(event.getReceivedAt()));
-                    
-                    if (event.getSendTimestampNs() != null) {
-                        ps.setLong(7, event.getSendTimestampNs());
-                    } else {
-                        ps.setNull(7, java.sql.Types.BIGINT);
-                    }
-                    
-                    if (event.getReceivedAtOrchestrator() != null) {
-                        ps.setTimestamp(8, Timestamp.from(event.getReceivedAtOrchestrator()));
-                    } else {
-                        ps.setNull(8, java.sql.Types.TIMESTAMP);
-                    }
-                    
-                    setLongOrNull(ps, 9, event.getTotalLatencyMs());
-                    setLongOrNull(ps, 10, event.getConsumerLatencyMs());
-                    setLongOrNull(ps, 11, event.getProcessingLatencyMs());
-                    setLongOrNull(ps, 12, event.getPublishingLatencyMs());
-                    
+                    ps.setString(2, event.getSourcePayload());
+                    ps.setString(3, event.getTransformedPayload());
+                    ps.setString(4, event.getSourceTopic());
+                    ps.setInt(5, event.getSourcePartition() != null ? event.getSourcePartition() : 0);
+                    ps.setLong(6, event.getSourceOffset() != null ? event.getSourceOffset() : 0);
+                    ps.setString(7, event.getDestinationTopic());
+                    ps.setInt(8, event.getDestinationPartition() != null ? event.getDestinationPartition() : 0);
+                    ps.setLong(9, event.getDestinationOffset() != null ? event.getDestinationOffset() : 0);
+                    ps.setLong(10, event.getMessageSendTime() != null ? event.getMessageSendTime() : 0);
+                    ps.setLong(11, event.getMessageFinalSentTime() != null ? event.getMessageFinalSentTime() : 0);
+                    ps.setString(12, event.getStatus().name());
+                    ps.setTimestamp(13, Timestamp.from(event.getReceivedAt()));
+                    ps.setLong(14, event.getSendTimestampNs() != null ? event.getSendTimestampNs() : 0);
+
                     if (event.getProcessedAt() != null) {
-                        ps.setTimestamp(13, Timestamp.from(event.getProcessedAt()));
+                        ps.setTimestamp(15, Timestamp.from(event.getProcessedAt()));
                     } else {
-                        ps.setNull(13, java.sql.Types.TIMESTAMP);
+                        ps.setNull(15, java.sql.Types.TIMESTAMP);
                     }
-                    
+
                     if (event.getPublishedAt() != null) {
-                        ps.setTimestamp(14, Timestamp.from(event.getPublishedAt()));
+                        ps.setTimestamp(16, Timestamp.from(event.getPublishedAt()));
                     } else {
-                        ps.setNull(14, java.sql.Types.TIMESTAMP);
+                        ps.setNull(16, java.sql.Types.TIMESTAMP);
                     }
+
+                    ps.setLong(17, event.getTotalLatencyMs() != null ? event.getTotalLatencyMs() : 0);
+                    ps.setTimestamp(18, Timestamp.from(event.getCreatedAt() != null ? event.getCreatedAt() : Instant.now()));
+                    ps.setTimestamp(19, Timestamp.from(event.getUpdatedAt() != null ? event.getUpdatedAt() : Instant.now()));
                 }
                 
                 @Override

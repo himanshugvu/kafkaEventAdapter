@@ -1,6 +1,8 @@
 package com.orchestrator.core.config;
 
 import com.orchestrator.core.controller.MetricsController;
+import com.orchestrator.core.logging.EcsLogger;
+import com.orchestrator.core.logging.MessageTokenizer;
 import com.orchestrator.core.metrics.LatencyTracker;
 import com.orchestrator.core.service.EventConsumerService;
 import com.orchestrator.core.service.EventPublisherService;
@@ -49,6 +51,16 @@ public class OrchestratorCoreAutoConfiguration {
     }
     
     @Bean
+    public MessageTokenizer messageTokenizer() {
+        return new MessageTokenizer();
+    }
+
+    @Bean
+    public EcsLogger ecsLogger(MessageTokenizer messageTokenizer) {
+        return new EcsLogger(messageTokenizer);
+    }
+
+    @Bean
     public TransactionalEventService transactionalEventService(EventStore eventStore) {
         return new TransactionalEventService(eventStore);
     }
@@ -60,8 +72,9 @@ public class OrchestratorCoreAutoConfiguration {
             MessageTransformer messageTransformer,
             OrchestratorProperties properties,
             LatencyTracker latencyTracker,
-            TransactionalEventService transactionalEventService) {
-        return new EventConsumerService(eventStore, publisherService, messageTransformer, properties, latencyTracker, transactionalEventService);
+            TransactionalEventService transactionalEventService,
+            EcsLogger ecsLogger) {
+        return new EventConsumerService(eventStore, publisherService, messageTransformer, properties, latencyTracker, transactionalEventService, ecsLogger);
     }
     
     @Bean

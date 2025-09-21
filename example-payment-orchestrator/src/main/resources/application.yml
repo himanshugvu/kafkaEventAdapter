@@ -17,5 +17,36 @@ spring:
       database: payment-orchestrator
   application:
     name: payment-orchestrator
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
   server:
     port: 8080
+
+# ECS Logging Configuration
+logging:
+  config: classpath:logback-spring.xml
+  level:
+    com.orchestrator.example.payment: INFO
+    com.orchestrator.core: INFO
+    org.springframework.kafka: WARN
+    org.mongodb.driver: WARN
+
+# Environment-specific logging
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+logging:
+  level:
+    com.orchestrator: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+logging:
+  level:
+    com.orchestrator: INFO
+    root: WARN

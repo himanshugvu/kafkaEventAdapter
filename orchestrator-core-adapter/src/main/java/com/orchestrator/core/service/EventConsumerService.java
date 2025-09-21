@@ -1,6 +1,7 @@
 package com.orchestrator.core.service;
 
 import com.orchestrator.core.config.OrchestratorProperties;
+import com.orchestrator.core.logging.EcsLogger;
 import com.orchestrator.core.metrics.LatencyTracker;
 import com.orchestrator.core.store.Event;
 import com.orchestrator.core.store.EventStatus;
@@ -13,6 +14,7 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import jakarta.annotation.PreDestroy;
 
 import java.time.Instant;
 import java.util.List;
@@ -33,6 +35,7 @@ public class EventConsumerService {
     private final LatencyTracker latencyTracker;
     private final TransactionalEventService transactionalEventService;
     private final ExecutorService virtualThreadExecutor;
+    private final EcsLogger ecsLogger;
     
     public EventConsumerService(
             EventStore eventStore,
@@ -40,7 +43,8 @@ public class EventConsumerService {
             MessageTransformer messageTransformer,
             OrchestratorProperties properties,
             LatencyTracker latencyTracker,
-            TransactionalEventService transactionalEventService) {
+            TransactionalEventService transactionalEventService,
+            EcsLogger ecsLogger) {
         this.eventStore = eventStore;
         this.publisherService = publisherService;
         this.messageTransformer = messageTransformer;
@@ -48,6 +52,16 @@ public class EventConsumerService {
         this.latencyTracker = latencyTracker;
         this.transactionalEventService = transactionalEventService;
         this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        this.ecsLogger = ecsLogger;
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        logger.info("Shutting down EventConsumerService...");
+        if (virtualThreadExecutor != null && !virtualThreadExecutor.isShutdown()) {
+            virtualThreadExecutor.shutdown();
+            logger.info("Virtual thread executor shutdown completed");
+        }
     }
     
     @KafkaListener(
@@ -59,7 +73,19 @@ public class EventConsumerService {
             Acknowledgment acknowledgment) {
         
         Instant batchReceivedAt = Instant.now();
-        logger.info("CONSUMER BATCH: Received {} records at {}", records.size(), batchReceivedAt);
+        String traceId = ecsLogger.startTrace();
+
+        // Log batch received with ECS structure
+        ConsumerRecord<String, String> firstRecord = records.get(0);
+        ecsLogger.logEventProcessing(
+            traceId,
+            firstRecord.topic(),
+            firstRecord.partition(),
+            firstRecord.offset(),
+            properties.database().strategy().name(),
+            String.format("Batch of %d records", records.size()),
+            "batch_received"
+        );
         
         try {
             switch (properties.database().strategy()) {
@@ -175,18 +201,59 @@ public class EventConsumerService {
     
     
     private void processNoneBatch(List<ConsumerRecord<String, String>> records, Acknowledgment acknowledgment) {
-        logger.info("NONE STRATEGY: Processing {} records without database logging", records.size());
+        long startTime = System.currentTimeMillis();
 
         for (ConsumerRecord<String, String> record : records) {
+            String eventId = UUID.randomUUID().toString();
             try {
+                // Log message processing start
+                ecsLogger.logEventProcessing(
+                    eventId,
+                    record.topic(),
+                    record.partition(),
+                    record.offset(),
+                    "NONE",
+                    record.value(),
+                    "transform_start"
+                );
+
                 String transformedMessage = messageTransformer.transform(record.value());
                 publisherService.publishMessage(transformedMessage);
+
+                // Log successful processing
+                ecsLogger.logEventProcessing(
+                    eventId,
+                    record.topic(),
+                    record.partition(),
+                    record.offset(),
+                    "NONE",
+                    transformedMessage,
+                    "publish_success"
+                );
+
             } catch (Exception e) {
-                logger.error("NONE STRATEGY: Failed to process record from {}-{}-{}: {}",
-                    record.topic(), record.partition(), record.offset(), e.getMessage());
+                // Log processing failure with structured logging
+                ecsLogger.logEventProcessing(
+                    eventId,
+                    record.topic(),
+                    record.partition(),
+                    record.offset(),
+                    "NONE",
+                    e.getMessage(),
+                    "processing_failed"
+                );
             }
         }
         acknowledgment.acknowledge();
+
+        long duration = System.currentTimeMillis() - startTime;
+        ecsLogger.logPerformanceMetrics(
+            UUID.randomUUID().toString(),
+            "none_batch_processing",
+            duration,
+            true,
+            null
+        );
     }
 
     private void processReliableBatch(List<ConsumerRecord<String, String>> records, Acknowledgment acknowledgment) {
@@ -375,13 +442,8 @@ public class EventConsumerService {
                 event.setSourcePayload(null);
                 event.setTransformedPayload(null);
             }
-            case BYTES -> {
-                if (event.getSourcePayload() != null) {
-                    event.setSourcePayload(event.getSourcePayload());
-                }
-            }
-            case TEXT -> {
-                // Keep payload as-is (already text/JSON)
+            case BYTES, TEXT -> {
+                // Keep payload as-is - no filtering or tokenization
             }
         }
 
