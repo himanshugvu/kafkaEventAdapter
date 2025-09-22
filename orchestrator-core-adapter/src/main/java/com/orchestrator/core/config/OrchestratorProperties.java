@@ -15,6 +15,7 @@ public record OrchestratorProperties(
     @NotNull @Valid ConsumerConfig consumer,
     @NotNull @Valid ProducerConfig producer,
     @NotNull @Valid DatabaseConfig database,
+    @NotNull @Valid CommitConfig commit,
     @Valid ResilienceConfig resilience,
     @Valid MonitoringConfig monitoring
 ) {
@@ -64,12 +65,21 @@ public record OrchestratorProperties(
     public record DatabaseConfig(
         DatabaseStrategy strategy,
         PayloadStorage payloadStorage,
+        FailureMode failureMode,
         boolean storePayloadOnFailureOnly,
         Duration staleEventThreshold,
         int maxRetries,
         Duration retentionPeriod,
         int bulkSize,
-        int executorThreads
+        int executorThreads,
+        Duration asyncProcessingTimeout
+    ) {}
+
+    public record CommitConfig(
+        @Positive int messageThreshold,
+        @Positive long timeThresholdMs,
+        boolean enableTimeBasedCommit,
+        boolean enableMessageBasedCommit
     ) {}
     
     public record ResilienceConfig(
@@ -101,5 +111,10 @@ public record OrchestratorProperties(
         NONE,
         BYTES,
         TEXT
+    }
+
+    public enum FailureMode {
+        ATOMIC,
+        SKIP_AND_LOG
     }
 }

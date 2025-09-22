@@ -1,5 +1,6 @@
 package com.orchestrator.core.service;
 
+import com.orchestrator.core.ack.AcknowledgementTracker;
 import com.orchestrator.core.config.OrchestratorProperties;
 import com.orchestrator.core.logging.EcsLogger;
 import com.orchestrator.core.metrics.LatencyTracker;
@@ -8,6 +9,7 @@ import com.orchestrator.core.store.EventStatus;
 import com.orchestrator.core.store.EventStore;
 import com.orchestrator.core.transformer.MessageTransformer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -20,8 +22,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class EventConsumerService {
@@ -36,6 +41,7 @@ public class EventConsumerService {
     private final TransactionalEventService transactionalEventService;
     private final ExecutorService virtualThreadExecutor;
     private final EcsLogger ecsLogger;
+    private final AcknowledgementTracker acknowledgementTracker;
     
     public EventConsumerService(
             EventStore eventStore,
@@ -53,6 +59,7 @@ public class EventConsumerService {
         this.transactionalEventService = transactionalEventService;
         this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
         this.ecsLogger = ecsLogger;
+        this.acknowledgementTracker = new AcknowledgementTracker(properties.commit());
     }
 
     @PreDestroy
@@ -244,7 +251,7 @@ public class EventConsumerService {
                 );
             }
         }
-        acknowledgment.acknowledge();
+        handleAcknowledgmentWithFailureMode(acknowledgment, 0, records.size()); // NONE strategy has no failures
 
         long duration = System.currentTimeMillis() - startTime;
         ecsLogger.logPerformanceMetrics(
@@ -259,6 +266,10 @@ public class EventConsumerService {
     private void processReliableBatch(List<ConsumerRecord<String, String>> records, Acknowledgment acknowledgment) {
         logger.info("RELIABLE STRATEGY: Processing {} records with full database logging", records.size());
 
+        // Use CountDownLatch to wait for all async operations to complete
+        var latch = new java.util.concurrent.CountDownLatch(records.size());
+        var failures = new java.util.concurrent.atomic.AtomicInteger(0);
+
         for (ConsumerRecord<String, String> record : records) {
             virtualThreadExecutor.submit(() -> {
                 Event event = createEventWithTiming(record, extractSendTimestamp(record), Instant.now());
@@ -272,33 +283,67 @@ public class EventConsumerService {
 
                     publisherService.publishMessage(transformedMessage)
                         .thenAccept(result -> {
-                            event.setTransformedPayload(transformedMessage);
-                            event.setDestinationTopic(result.getRecordMetadata().topic());
-                            event.setDestinationPartition(result.getRecordMetadata().partition());
-                            event.setDestinationOffset(result.getRecordMetadata().offset());
-                            event.setMessageFinalSentTime(System.currentTimeMillis());
+                            try {
+                                event.setTransformedPayload(transformedMessage);
+                                event.setDestinationTopic(result.getRecordMetadata().topic());
+                                event.setDestinationPartition(result.getRecordMetadata().partition());
+                                event.setDestinationOffset(result.getRecordMetadata().offset());
+                                event.setMessageFinalSentTime(System.currentTimeMillis());
 
-                            if (shouldStorePayload(true)) {
-                                eventStore.updateStatus(event.getId(), EventStatus.SUCCESS);
+                                if (shouldStorePayload(true)) {
+                                    eventStore.updateStatus(event.getId(), EventStatus.SUCCESS);
+                                }
+                            } finally {
+                                latch.countDown();
                             }
                         })
                         .exceptionally(throwable -> {
-                            event.setErrorMessage(throwable.getMessage());
-                            eventStore.updateStatus(event.getId(), EventStatus.FAILED, throwable.getMessage());
+                            try {
+                                event.setErrorMessage(throwable.getMessage());
+                                eventStore.updateStatus(event.getId(), EventStatus.FAILED, throwable.getMessage());
+                                failures.incrementAndGet();
+                            } finally {
+                                latch.countDown();
+                            }
                             return null;
                         });
 
                 } catch (Exception e) {
-                    event.setErrorMessage(e.getMessage());
-                    eventStore.updateStatus(event.getId(), EventStatus.FAILED, e.getMessage());
+                    try {
+                        event.setErrorMessage(e.getMessage());
+                        eventStore.updateStatus(event.getId(), EventStatus.FAILED, e.getMessage());
+                        failures.incrementAndGet();
+                    } finally {
+                        latch.countDown();
+                    }
                 }
             });
         }
-        acknowledgment.acknowledge();
+
+        try {
+            // Wait for all processing to complete before acknowledging
+            latch.await(properties.database().asyncProcessingTimeout().toSeconds(), TimeUnit.SECONDS);
+
+            if (failures.get() > 0) {
+                logger.warn("RELIABLE STRATEGY: {} out of {} records failed processing", failures.get(), records.size());
+            }
+
+            // Only acknowledge after all processing is complete
+            handleAcknowledgmentWithFailureMode(acknowledgment, failures.get(), records.size());
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("RELIABLE STRATEGY: Timeout waiting for batch processing completion");
+            throw new RuntimeException("Batch processing timeout", e);
+        }
     }
 
     private void processLightweightBatch(List<ConsumerRecord<String, String>> records, Acknowledgment acknowledgment) {
         logger.info("LIGHTWEIGHT STRATEGY: Processing {} records with failure-only database logging", records.size());
+
+        // Use CountDownLatch to wait for all async operations to complete
+        var latch = new java.util.concurrent.CountDownLatch(records.size());
+        var failures = new java.util.concurrent.atomic.AtomicInteger(0);
 
         for (ConsumerRecord<String, String> record : records) {
             virtualThreadExecutor.submit(() -> {
@@ -306,69 +351,131 @@ public class EventConsumerService {
                     String transformedMessage = messageTransformer.transform(record.value());
 
                     publisherService.publishMessage(transformedMessage)
+                        .thenAccept(result -> {
+                            // Success - no database logging needed for LIGHTWEIGHT
+                            latch.countDown();
+                        })
                         .exceptionally(throwable -> {
-                            Event failedEvent = createEventWithTiming(record, extractSendTimestamp(record), Instant.now());
-                            failedEvent.setStatus(EventStatus.FAILED);
-                            failedEvent.setErrorMessage(throwable.getMessage());
+                            try {
+                                Event failedEvent = createEventWithTiming(record, extractSendTimestamp(record), Instant.now());
+                                failedEvent.setStatus(EventStatus.FAILED);
+                                failedEvent.setErrorMessage(throwable.getMessage());
 
-                            if (shouldStorePayload(false)) {
-                                storeEventWithPayload(failedEvent);
-                            } else {
-                                eventStore.bulkInsert(List.of(failedEvent));
+                                if (shouldStorePayload(false)) {
+                                    storeEventWithPayload(failedEvent);
+                                } else {
+                                    eventStore.bulkInsert(List.of(failedEvent));
+                                }
+
+                                logger.error("LIGHTWEIGHT: Logged failed event to database: {}", failedEvent.getId());
+                                failures.incrementAndGet();
+                            } finally {
+                                latch.countDown();
                             }
-
-                            logger.error("LIGHTWEIGHT: Logged failed event to database: {}", failedEvent.getId());
                             return null;
                         });
 
                 } catch (Exception e) {
-                    Event failedEvent = createEventWithTiming(record, extractSendTimestamp(record), Instant.now());
-                    failedEvent.setStatus(EventStatus.FAILED);
-                    failedEvent.setErrorMessage(e.getMessage());
+                    try {
+                        Event failedEvent = createEventWithTiming(record, extractSendTimestamp(record), Instant.now());
+                        failedEvent.setStatus(EventStatus.FAILED);
+                        failedEvent.setErrorMessage(e.getMessage());
 
-                    if (shouldStorePayload(false)) {
-                        storeEventWithPayload(failedEvent);
-                    } else {
-                        eventStore.bulkInsert(List.of(failedEvent));
+                        if (shouldStorePayload(false)) {
+                            storeEventWithPayload(failedEvent);
+                        } else {
+                            eventStore.bulkInsert(List.of(failedEvent));
+                        }
+
+                        logger.error("LIGHTWEIGHT: Logged processing failure to database: {}", failedEvent.getId());
+                        failures.incrementAndGet();
+                    } finally {
+                        latch.countDown();
                     }
-
-                    logger.error("LIGHTWEIGHT: Logged processing failure to database: {}", failedEvent.getId());
                 }
             });
         }
-        acknowledgment.acknowledge();
+
+        try {
+            // Wait for all processing to complete before acknowledging
+            latch.await(properties.database().asyncProcessingTimeout().toSeconds(), TimeUnit.SECONDS);
+
+            if (failures.get() > 0) {
+                logger.warn("LIGHTWEIGHT STRATEGY: {} out of {} records failed processing", failures.get(), records.size());
+            }
+
+            // Only acknowledge after all processing is complete
+            handleAcknowledgmentWithFailureMode(acknowledgment, failures.get(), records.size());
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("LIGHTWEIGHT STRATEGY: Timeout waiting for batch processing completion");
+            throw new RuntimeException("Batch processing timeout", e);
+        }
     }
 
     private void processAuditPersistBatch(List<ConsumerRecord<String, String>> records, Acknowledgment acknowledgment) {
+        // Use CountDownLatch to track completion of all records
+        var latch = new java.util.concurrent.CountDownLatch(records.size());
+        var failures = new java.util.concurrent.atomic.AtomicInteger(0);
+
         for (ConsumerRecord<String, String> record : records) {
             try {
                 String transformedMessage = messageTransformer.transform(record.value());
-                
+
                 publisherService.publishMessage(transformedMessage)
                     .thenAccept(result -> {
-                        acknowledgment.acknowledge();
-                        
-                        CompletableFuture.runAsync(() -> {
-                            Event successEvent = createEventForAuditPersist(record, transformedMessage, EventStatus.SUCCESS, null);
-                            successEvent.setDestinationTopic(result.getRecordMetadata().topic());
-                            successEvent.setDestinationPartition(result.getRecordMetadata().partition());
-                            successEvent.setDestinationOffset(result.getRecordMetadata().offset());
-                            successEvent.setMessageFinalSentTime(System.currentTimeMillis());
-                            eventStore.bulkInsert(List.of(successEvent));
-                        });
+                        try {
+                            // Log success event asynchronously
+                            CompletableFuture.runAsync(() -> {
+                                Event successEvent = createEventForAuditPersist(record, transformedMessage, EventStatus.SUCCESS, null);
+                                successEvent.setDestinationTopic(result.getRecordMetadata().topic());
+                                successEvent.setDestinationPartition(result.getRecordMetadata().partition());
+                                successEvent.setDestinationOffset(result.getRecordMetadata().offset());
+                                successEvent.setMessageFinalSentTime(System.currentTimeMillis());
+                                eventStore.bulkInsert(List.of(successEvent));
+                            });
+                        } finally {
+                            latch.countDown();
+                        }
                     })
                     .exceptionally(throwable -> {
-                        Event failedEvent = createEventForAuditPersist(record, null, EventStatus.FAILED, throwable.getMessage());
-                        eventStore.bulkInsert(List.of(failedEvent));
-                        acknowledgment.acknowledge();
+                        try {
+                            Event failedEvent = createEventForAuditPersist(record, null, EventStatus.FAILED, throwable.getMessage());
+                            eventStore.bulkInsert(List.of(failedEvent));
+                            failures.incrementAndGet();
+                        } finally {
+                            latch.countDown();
+                        }
                         return null;
                     });
-                    
+
             } catch (Exception e) {
-                Event failedEvent = createEventForAuditPersist(record, null, EventStatus.FAILED, e.getMessage());
-                eventStore.bulkInsert(List.of(failedEvent));
-                acknowledgment.acknowledge();
+                try {
+                    Event failedEvent = createEventForAuditPersist(record, null, EventStatus.FAILED, e.getMessage());
+                    eventStore.bulkInsert(List.of(failedEvent));
+                    failures.incrementAndGet();
+                } finally {
+                    latch.countDown();
+                }
             }
+        }
+
+        try {
+            // Wait for all processing to complete before acknowledging
+            latch.await(properties.database().asyncProcessingTimeout().toSeconds(), TimeUnit.SECONDS);
+
+            if (failures.get() > 0) {
+                logger.warn("AUDIT_PERSIST STRATEGY: {} out of {} records failed processing", failures.get(), records.size());
+            }
+
+            // Only acknowledge after all processing is complete
+            handleAcknowledgmentWithFailureMode(acknowledgment, failures.get(), records.size());
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("AUDIT_PERSIST STRATEGY: Timeout waiting for batch processing completion");
+            throw new RuntimeException("Batch processing timeout", e);
         }
     }
     
@@ -381,7 +488,7 @@ public class EventConsumerService {
     }
     
     private void processFailSafeBatch(List<ConsumerRecord<String, String>> records, Acknowledgment acknowledgment) {
-        acknowledgment.acknowledge();
+        handleAcknowledgmentWithFailureMode(acknowledgment, 0, records.size()); // FAIL_SAFE always acknowledges
         
         for (ConsumerRecord<String, String> record : records) {
             try {
@@ -421,6 +528,33 @@ public class EventConsumerService {
                 eventStore.updateStatus(eventId, status);
             }
         });
+    }
+
+    private void handleAcknowledgmentWithFailureMode(Acknowledgment acknowledgment, int failures, int totalRecords) {
+        var failureMode = properties.database().failureMode();
+
+        switch (failureMode) {
+            case ATOMIC:
+                if (failures > 0) {
+                    logger.warn("ATOMIC MODE: Not acknowledging due to {} failures out of {} records", failures, totalRecords);
+                    // Do not acknowledge - let Kafka retry
+                    return;
+                }
+                acknowledgment.acknowledge();
+                break;
+
+            case SKIP_AND_LOG:
+                if (failures > 0) {
+                    logger.warn("SKIP_AND_LOG MODE: Acknowledging despite {} failures out of {} records (failures logged to database)", failures, totalRecords);
+                }
+                acknowledgment.acknowledge();
+                break;
+
+            default:
+                // Default behavior - acknowledge
+                acknowledgment.acknowledge();
+                break;
+        }
     }
     
     private boolean shouldStorePayload(boolean isSuccess) {

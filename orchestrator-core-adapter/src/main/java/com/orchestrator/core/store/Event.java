@@ -39,6 +39,9 @@ public class Event {
     
     // Calculated performance metrics
     private Long totalLatencyMs;            // Total end-to-end latency
+    private Long consumerLatencyMs;         // Time from message send to consumer receive
+    private Long processingLatencyMs;       // Time spent in transformation/processing
+    private Long publishingLatencyMs;       // Time spent publishing to output topic
     private Boolean exceededOneSecond;      // Performance threshold flag
     
     public Event() {}
@@ -143,7 +146,16 @@ public class Event {
     // Performance metrics
     public Long getTotalLatencyMs() { return totalLatencyMs; }
     public void setTotalLatencyMs(Long totalLatencyMs) { this.totalLatencyMs = totalLatencyMs; }
-    
+
+    public Long getConsumerLatencyMs() { return consumerLatencyMs; }
+    public void setConsumerLatencyMs(Long consumerLatencyMs) { this.consumerLatencyMs = consumerLatencyMs; }
+
+    public Long getProcessingLatencyMs() { return processingLatencyMs; }
+    public void setProcessingLatencyMs(Long processingLatencyMs) { this.processingLatencyMs = processingLatencyMs; }
+
+    public Long getPublishingLatencyMs() { return publishingLatencyMs; }
+    public void setPublishingLatencyMs(Long publishingLatencyMs) { this.publishingLatencyMs = publishingLatencyMs; }
+
     public Boolean getExceededOneSecond() { return exceededOneSecond; }
     public void setExceededOneSecond(Boolean exceededOneSecond) { this.exceededOneSecond = exceededOneSecond; }
     

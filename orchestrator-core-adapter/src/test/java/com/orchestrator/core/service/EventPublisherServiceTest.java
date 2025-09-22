@@ -51,7 +51,21 @@ class EventPublisherServiceTest {
             ),
             new OrchestratorProperties.DatabaseConfig(
                 OrchestratorProperties.DatabaseStrategy.ATOMIC_OUTBOX,
-                Duration.ofMinutes(30), 3, Duration.ofDays(7), 100
+                OrchestratorProperties.PayloadStorage.TEXT,
+                OrchestratorProperties.FailureMode.ATOMIC,
+                false,
+                Duration.ofMinutes(30),
+                3,
+                Duration.ofDays(7),
+                100,
+                10,
+                Duration.ofSeconds(30)
+            ),
+            new OrchestratorProperties.CommitConfig(
+                100,
+                5000,
+                true,
+                true
             ),
             null,
             null

@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Read(//c/Users/himan/Project/codex/kafkaOrch/orchestrator-starter/**)",
-      "Bash(mvn clean:*)"
+      "Bash(mvn clean:*)",
+      "Bash(mvn test:*)"
     ],
     "deny": [],
     "ask": []

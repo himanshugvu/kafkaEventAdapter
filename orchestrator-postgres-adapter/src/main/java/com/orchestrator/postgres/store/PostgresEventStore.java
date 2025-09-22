@@ -54,16 +54,38 @@ public class PostgresEventStore implements EventStore {
                     ps.setString(2, event.getSourcePayload());
                     ps.setString(3, event.getTransformedPayload());
                     ps.setString(4, event.getSourceTopic());
-                    ps.setInt(5, event.getSourcePartition() != null ? event.getSourcePartition() : 0);
-                    ps.setLong(6, event.getSourceOffset() != null ? event.getSourceOffset() : 0);
+
+                    if (event.getSourcePartition() != null) {
+                        ps.setInt(5, event.getSourcePartition());
+                    } else {
+                        ps.setNull(5, java.sql.Types.INTEGER);
+                    }
+
+                    if (event.getSourceOffset() != null) {
+                        ps.setLong(6, event.getSourceOffset());
+                    } else {
+                        ps.setNull(6, java.sql.Types.BIGINT);
+                    }
+
                     ps.setString(7, event.getDestinationTopic());
-                    ps.setInt(8, event.getDestinationPartition() != null ? event.getDestinationPartition() : 0);
-                    ps.setLong(9, event.getDestinationOffset() != null ? event.getDestinationOffset() : 0);
-                    ps.setLong(10, event.getMessageSendTime() != null ? event.getMessageSendTime() : 0);
-                    ps.setLong(11, event.getMessageFinalSentTime() != null ? event.getMessageFinalSentTime() : 0);
+
+                    if (event.getDestinationPartition() != null) {
+                        ps.setInt(8, event.getDestinationPartition());
+                    } else {
+                        ps.setNull(8, java.sql.Types.INTEGER);
+                    }
+
+                    if (event.getDestinationOffset() != null) {
+                        ps.setLong(9, event.getDestinationOffset());
+                    } else {
+                        ps.setNull(9, java.sql.Types.BIGINT);
+                    }
+
+                    setLongOrNull(ps, 10, event.getMessageSendTime());
+                    setLongOrNull(ps, 11, event.getMessageFinalSentTime());
                     ps.setString(12, event.getStatus().name());
                     ps.setTimestamp(13, Timestamp.from(event.getReceivedAt()));
-                    ps.setLong(14, event.getSendTimestampNs() != null ? event.getSendTimestampNs() : 0);
+                    setLongOrNull(ps, 14, event.getSendTimestampNs());
 
                     if (event.getProcessedAt() != null) {
                         ps.setTimestamp(15, Timestamp.from(event.getProcessedAt()));
@@ -77,7 +99,7 @@ public class PostgresEventStore implements EventStore {
                         ps.setNull(16, java.sql.Types.TIMESTAMP);
                     }
 
-                    ps.setLong(17, event.getTotalLatencyMs() != null ? event.getTotalLatencyMs() : 0);
+                    setLongOrNull(ps, 17, event.getTotalLatencyMs());
                     ps.setTimestamp(18, Timestamp.from(event.getCreatedAt() != null ? event.getCreatedAt() : Instant.now()));
                     ps.setTimestamp(19, Timestamp.from(event.getUpdatedAt() != null ? event.getUpdatedAt() : Instant.now()));
                 }
@@ -159,25 +181,30 @@ public class PostgresEventStore implements EventStore {
     }
     
     private Event mapResultSetToEvent(ResultSet rs) throws SQLException {
+        Integer sourcePartition = (Integer) rs.getObject("source_partition");
+        Number sourceOffsetNumber = (Number) rs.getObject("source_offset");
+        Long sourceOffset = sourceOffsetNumber != null ? sourceOffsetNumber.longValue() : null;
+
         Event event = new Event(
             rs.getString("id"),
             rs.getString("source_payload"),
             rs.getString("source_topic"),
-            rs.getInt("source_partition"),
-            rs.getLong("source_offset")
+            sourcePartition,
+            sourceOffset
         );
         
         // Set additional fields from new schema
         event.setTransformedPayload(rs.getString("transformed_payload"));
         event.setDestinationTopic(rs.getString("destination_topic"));
         
-        Integer destPartition = rs.getInt("destination_partition");
-        if (!rs.wasNull()) {
+        Integer destPartition = (Integer) rs.getObject("destination_partition");
+        if (destPartition != null) {
             event.setDestinationPartition(destPartition);
         }
-        
-        Long destOffset = rs.getLong("destination_offset");
-        if (!rs.wasNull()) {
+
+        Number destOffsetNumber = (Number) rs.getObject("destination_offset");
+        Long destOffset = destOffsetNumber != null ? destOffsetNumber.longValue() : null;
+        if (destOffset != null) {
             event.setDestinationOffset(destOffset);
         }
         
@@ -228,14 +255,7 @@ public class PostgresEventStore implements EventStore {
         if (errorMessage != null) {
             event.setErrorMessage(errorMessage);
         }
-        
-        long publishingLatency = rs.getLong("publishing_latency_ms");
-        if (!rs.wasNull()) {
-            event.setPublishingLatencyMs(publishingLatency);
-        }
-        
-        event.setErrorMessage(rs.getString("error_message"));
-        
+
         return event;
     }
     

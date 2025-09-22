@@ -67,15 +67,30 @@ class EventConsumerServiceTest {
             ),
             new OrchestratorProperties.DatabaseConfig(
                 OrchestratorProperties.DatabaseStrategy.ATOMIC_OUTBOX,
-                Duration.ofMinutes(30), 3, Duration.ofDays(7), 100
+                OrchestratorProperties.PayloadStorage.TEXT,
+                OrchestratorProperties.FailureMode.ATOMIC,
+                false,
+                Duration.ofMinutes(30),
+                3,
+                Duration.ofDays(7),
+                100,
+                10,
+                Duration.ofSeconds(30)
+            ),
+            new OrchestratorProperties.CommitConfig(
+                100,
+                5000,
+                true,
+                true
             ),
             null,
             null
         );
         
         consumerService = new EventConsumerService(
-            eventStore, publisherService, messageTransformer, 
-            properties, latencyTracker, transactionalEventService
+            eventStore, publisherService, messageTransformer,
+            properties, latencyTracker, transactionalEventService,
+            mock(com.orchestrator.core.logging.EcsLogger.class)
         );
     }
 
@@ -104,15 +119,30 @@ class EventConsumerServiceTest {
             properties.producer(),
             new OrchestratorProperties.DatabaseConfig(
                 OrchestratorProperties.DatabaseStrategy.AUDIT_PERSIST,
-                Duration.ofMinutes(30), 3, Duration.ofDays(7), 100
+                OrchestratorProperties.PayloadStorage.TEXT,
+                OrchestratorProperties.FailureMode.SKIP_AND_LOG,
+                false,
+                Duration.ofMinutes(30),
+                3,
+                Duration.ofDays(7),
+                100,
+                10,
+                Duration.ofSeconds(30)
+            ),
+            new OrchestratorProperties.CommitConfig(
+                100,
+                5000,
+                true,
+                true
             ),
             null,
             null
         );
         
         consumerService = new EventConsumerService(
-            eventStore, publisherService, messageTransformer, 
-            auditProperties, latencyTracker, transactionalEventService
+            eventStore, publisherService, messageTransformer,
+            auditProperties, latencyTracker, transactionalEventService,
+            mock(com.orchestrator.core.logging.EcsLogger.class)
         );
         
         ConsumerRecord<String, String> record = new ConsumerRecord<>(
@@ -135,15 +165,30 @@ class EventConsumerServiceTest {
             properties.producer(),
             new OrchestratorProperties.DatabaseConfig(
                 OrchestratorProperties.DatabaseStrategy.FAIL_SAFE,
-                Duration.ofMinutes(30), 3, Duration.ofDays(7), 100
+                OrchestratorProperties.PayloadStorage.TEXT,
+                OrchestratorProperties.FailureMode.SKIP_AND_LOG,
+                false,
+                Duration.ofMinutes(30),
+                3,
+                Duration.ofDays(7),
+                100,
+                10,
+                Duration.ofSeconds(30)
+            ),
+            new OrchestratorProperties.CommitConfig(
+                100,
+                5000,
+                true,
+                true
             ),
             null,
             null
         );
         
         consumerService = new EventConsumerService(
-            eventStore, publisherService, messageTransformer, 
-            failSafeProperties, latencyTracker, transactionalEventService
+            eventStore, publisherService, messageTransformer,
+            failSafeProperties, latencyTracker, transactionalEventService,
+            mock(com.orchestrator.core.logging.EcsLogger.class)
         );
         
         ConsumerRecord<String, String> record = new ConsumerRecord<>(

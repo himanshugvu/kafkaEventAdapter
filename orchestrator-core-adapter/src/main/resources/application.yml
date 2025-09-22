@@ -38,6 +38,7 @@ orchestrator:
     retention-period: ${orchestrator.database.retention.period:P7D}
     bulk-size: ${orchestrator.database.bulk.size:100}
     executor-threads: ${orchestrator.database.executor.threads:10}
+    async-processing-timeout: ${orchestrator.database.async.processing.timeout:PT30S}
     
   metrics:
     enabled: ${orchestrator.metrics.enabled:true}

@@ -43,11 +43,11 @@ class PostgresEventStoreTest {
         Event event2 = new Event("id2", "payload2", "topic", 0, 101L);
         List<Event> events = List.of(event1, event2);
         
-        when(jdbcTemplate.batchUpdate(anyString(), any())).thenReturn(new int[]{1, 1});
+        when(jdbcTemplate.batchUpdate(anyString(), any(org.springframework.jdbc.core.BatchPreparedStatementSetter.class))).thenReturn(new int[]{1, 1});
         
         postgresEventStore.bulkInsert(events);
         
-        verify(jdbcTemplate).batchUpdate(anyString(), any());
+        verify(jdbcTemplate).batchUpdate(anyString(), any(org.springframework.jdbc.core.BatchPreparedStatementSetter.class));
     }
 
     @Test
