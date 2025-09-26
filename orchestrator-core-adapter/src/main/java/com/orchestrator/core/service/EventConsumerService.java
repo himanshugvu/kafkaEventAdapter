@@ -69,6 +69,11 @@ public class EventConsumerService {
             virtualThreadExecutor.shutdown();
             logger.info("Virtual thread executor shutdown completed");
         }
+
+        if (acknowledgementTracker != null) {
+            acknowledgementTracker.shutdown();
+            logger.info("Acknowledgement tracker shutdown completed");
+        }
     }
     
     @KafkaListener(
@@ -78,7 +83,10 @@ public class EventConsumerService {
     public void consumeEvents(
             List<ConsumerRecord<String, String>> records,
             Acknowledgment acknowledgment) {
-        
+
+        // Set acknowledgment tracker for this batch
+        acknowledgementTracker.setCurrentAcknowledgment(acknowledgment);
+
         Instant batchReceivedAt = Instant.now();
         String traceId = ecsLogger.startTrace();
 
@@ -225,7 +233,9 @@ public class EventConsumerService {
                 );
 
                 String transformedMessage = messageTransformer.transform(record.value());
-                publisherService.publishMessage(transformedMessage);
+
+                // Publish with automatic acknowledgment tracking
+                publishWithTracking(record, transformedMessage);
 
                 // Log successful processing
                 ecsLogger.logEventProcessing(
@@ -251,7 +261,8 @@ public class EventConsumerService {
                 );
             }
         }
-        handleAcknowledgmentWithFailureMode(acknowledgment, 0, records.size()); // NONE strategy has no failures
+        // Note: NONE strategy acknowledgment is now handled by AcknowledgementTracker
+        // based on individual sendFuture completion status
 
         long duration = System.currentTimeMillis() - startTime;
         ecsLogger.logPerformanceMetrics(
@@ -530,29 +541,67 @@ public class EventConsumerService {
         });
     }
 
+    /**
+     * Publish message with automatic acknowledgement tracking
+     */
+    private CompletableFuture<org.springframework.kafka.support.SendResult<String, String>> publishWithTracking(
+            ConsumerRecord<String, String> record, String message) {
+
+        CompletableFuture<org.springframework.kafka.support.SendResult<String, String>> publishFuture =
+            publisherService.publishMessage(message);
+
+        TopicPartition partition = new TopicPartition(record.topic(), record.partition());
+        acknowledgementTracker.registerPendingAck(partition, record.offset(), publishFuture);
+
+        return publishFuture;
+    }
+
+    /**
+     * Track a publisher result and register it with the acknowledgement tracker
+     */
+    private CompletableFuture<org.springframework.kafka.support.SendResult<String, String>> trackPublisherResult(
+            ConsumerRecord<String, String> record,
+            CompletableFuture<org.springframework.kafka.support.SendResult<String, String>> publishFuture) {
+
+        TopicPartition partition = new TopicPartition(record.topic(), record.partition());
+        acknowledgementTracker.registerPendingAck(partition, record.offset(), publishFuture);
+
+        return publishFuture;
+    }
+
+    /**
+     * Handle acknowledgment using the new tracking-based approach.
+     * This method now delegates to the AcknowledgementTracker which will
+     * commit based on producer completion status and configured thresholds.
+     */
     private void handleAcknowledgmentWithFailureMode(Acknowledgment acknowledgment, int failures, int totalRecords) {
         var failureMode = properties.database().failureMode();
+
+        logger.debug("Handling acknowledgment with failure mode: {}, failures: {}, total: {}",
+                    failureMode, failures, totalRecords);
 
         switch (failureMode) {
             case ATOMIC:
                 if (failures > 0) {
-                    logger.warn("ATOMIC MODE: Not acknowledging due to {} failures out of {} records", failures, totalRecords);
-                    // Do not acknowledge - let Kafka retry
+                    logger.warn("ATOMIC MODE: Not committing due to {} failures out of {} records", failures, totalRecords);
+                    // Don't call forceCommit - let individual sendFuture failures prevent commits
                     return;
                 }
-                acknowledgment.acknowledge();
+                // For ATOMIC mode with no failures, we can force commit immediately
+                acknowledgementTracker.forceCommit();
                 break;
 
             case SKIP_AND_LOG:
                 if (failures > 0) {
-                    logger.warn("SKIP_AND_LOG MODE: Acknowledging despite {} failures out of {} records (failures logged to database)", failures, totalRecords);
+                    logger.warn("SKIP_AND_LOG MODE: Force committing despite {} failures out of {} records (failures logged to database)", failures, totalRecords);
                 }
-                acknowledgment.acknowledge();
+                // For SKIP_AND_LOG mode, always force commit regardless of failures
+                acknowledgementTracker.forceCommit();
                 break;
 
             default:
-                // Default behavior - acknowledge
-                acknowledgment.acknowledge();
+                // Default behavior - let acknowledgment tracker handle based on sendFuture completion
+                logger.debug("Using acknowledgment tracker for commit decision");
                 break;
         }
     }

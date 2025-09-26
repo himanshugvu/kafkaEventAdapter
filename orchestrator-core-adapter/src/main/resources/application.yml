@@ -1,4 +1,4 @@
-orchestrator:
+  orchestrator:
   consumer:
     topic: ${orchestrator.consumer.topic:}
     group-id: ${orchestrator.consumer.group.id:}
